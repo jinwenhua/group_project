@@ -154,7 +154,7 @@ def preprocess(text):
     text = re.sub(r"she's", "she is", text)
     text = re.sub(r"it's", "it is", text)
     text = re.sub(r"that's", "that is", text)
-    text = re.sub(r"what's", "that is", text)
+    text = re.sub(r"what's", "what is", text)
     text = re.sub(r"where's", "where is", text)
     text = re.sub(r"how's", "how is", text)
     text = re.sub(r"\'ll", " will", text)
