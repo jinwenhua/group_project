@@ -142,7 +142,7 @@ class GRUCell(nn.Module):
         return 
 
 class SimpleRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bias, output_size, activation='tanh'):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, bias = True, activation='tanh'):
         super(SimpleRNN, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -223,7 +223,7 @@ class SimpleRNN(nn.Module):
         return out
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bias, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, bias = True):
         super(LSTM, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -289,7 +289,7 @@ class LSTM(nn.Module):
         return out
 
 class GRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, bias, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, bias = True):
         super(GRU, self).__init__()
 
         self.input_size = input_size
@@ -353,7 +353,7 @@ class GRU(nn.Module):
         return out
 
 class BidirRecurrentModel(nn.Module):
-    def __init__(self, mode, input_size, hidden_size, num_layers, bias, output_size):
+    def __init__(self, mode, input_size, hidden_size, num_layers, output_size, bias = True):
         super(BidirRecurrentModel, self).__init__()
         self.mode = mode
         self.input_size = input_size

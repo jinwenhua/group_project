@@ -112,6 +112,7 @@ class Voc:
             self.addWord(word)
 
 def preprocess(text):
+    '''
     text = re.sub(r"there's", "there is", text)
     text = re.sub(r"i'm", "i am", text)
     text = re.sub(r"he's", "he is", text)
@@ -134,6 +135,8 @@ def preprocess(text):
     text = re.sub(r"'til", "until", text)
     text = re.sub(r"[-()\"#/@;:<>{}`+=~|.!?,]", "", text)
     text = re.sub(r"  "," ",text)
+    '''
+    
 
     return text
 
