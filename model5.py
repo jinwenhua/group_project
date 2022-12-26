@@ -104,7 +104,7 @@ class GRUCell(nn.Module):
         self.hidden_size = hidden_size
         self.bias = bias
 
-        self.x2h = nn.Linear(input_size, 3 * hidden_size, bias=bias)
+        #self.x2h = nn.Linear(input_size, 3 * hidden_size, bias=bias)
         self.h2h = nn.Linear(hidden_size, 3 * hidden_size, bias=bias)
 
         self.reset_parameters()
@@ -126,16 +126,13 @@ class GRUCell(nn.Module):
         if hx is None:
             hx = Variable(input.new_zeros(input.size(0), self.hidden_size))
 
-        x_t = self.x2h(input)
         h_t = self.h2h(hx)
 
-
-        x_reset, x_upd, x_new = x_t.chunk(3, 1)
         h_reset, h_upd, h_new = h_t.chunk(3, 1)
 
-        reset_gate = torch.sigmoid(x_reset + h_reset)
-        update_gate = torch.sigmoid(x_upd + h_upd)
-        new_gate = torch.tanh(x_new + (reset_gate * h_new))
+        reset_gate = torch.sigmoid(h_reset)
+        update_gate = torch.sigmoid(h_upd)
+        new_gate = torch.tanh(reset_gate * h_new)
 
         hy = update_gate * hx + (1 - update_gate) * new_gate
 
@@ -353,14 +350,14 @@ class GRU(nn.Module):
         return out
 
 class BidirRecurrentModel(nn.Module):
-    def __init__(self, mode, input_size, hidden_size, num_layers, output_size, bias = True):
+    def __init__(self, mode, input_size, hidden_size, num_layers, output_size = 0, bias = True):
         super(BidirRecurrentModel, self).__init__()
         self.mode = mode
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.bias = bias
-        self.output_size = output_size
+        #self.output_size = output_size
 
         self.rnn_cell_list = nn.ModuleList()
 
@@ -407,23 +404,20 @@ class BidirRecurrentModel(nn.Module):
         else:
             raise ValueError("Invalid RNN mode selected.")
 
-        self.fc = nn.Linear(self.hidden_size * 2, self.output_size)
+        #self.fc = nn.Linear(self.hidden_size * 2, self.output_size)
 
-    def forward(self, input, hx=None):
+    def forward(self, input, hx=None, merge_mode = 'ave'):
 
         # Input of shape (batch_size, sequence length, input_size)
         #
         # Output of shape (batch_size, output_size)
-
+        max_batch_size = input.size(1)
+        sort_num = input.shape[0]
         if torch.cuda.is_available():
-            h0 = Variable(torch.zeros(self.num_layers, input.size(0), self.hidden_size).cuda())
+            h0 = Variable(torch.zeros(self.num_layers * 2, max_batch_size, self.hidden_size).cuda())
         else:
-            h0 = Variable(torch.zeros(self.num_layers, input.size(0), self.hidden_size))
+            h0 = Variable(torch.zeros(self.num_layers * 2, max_batch_size, self.hidden_size))
 
-        if torch.cuda.is_available():
-            hT = Variable(torch.zeros(self.num_layers, input.size(0), self.hidden_size).cuda())
-        else:
-            hT = Variable(torch.zeros(self.num_layers, input.size(0), self.hidden_size))
 
         outs = []
         outs_rev = []
@@ -438,11 +432,11 @@ class BidirRecurrentModel(nn.Module):
         hidden_backward = list()
         for layer in range(self.num_layers):
             if self.mode == 'LSTM':
-                hidden_backward.append((hT[layer, :, :], hT[layer, :, :]))
+                hidden_backward.append((h0[self.num_layers + layer, :, :], h0[self.num_layers + layer, :, :]))
             else:
-                hidden_backward.append(hT[layer, :, :])
+                hidden_backward.append(h0[self.num_layers + layer, :, :])
 
-        for t in range(input.shape[1]):
+        for t in range(sort_num):
             for layer in range(self.num_layers):
 
                 if self.mode == 'LSTM':
@@ -450,38 +444,27 @@ class BidirRecurrentModel(nn.Module):
                     if layer == 0:
                         # Forward net
                         h_forward_l = self.rnn_cell_list[layer](
-                            input[:, t, :],
                             (hidden_forward[layer][0], hidden_forward[layer][1])
                             )
                         # Backward net
                         h_back_l = self.rnn_cell_list[layer](
-                            input[:, -(t + 1), :],
                             (hidden_backward[layer][0], hidden_backward[layer][1])
                             )
                     else:
                         # Forward net
                         h_forward_l = self.rnn_cell_list[layer](
-                            hidden_forward[layer - 1][0],
                             (hidden_forward[layer][0], hidden_forward[layer][1])
                             )
                         # Backward net
                         h_back_l = self.rnn_cell_list[layer](
-                            hidden_backward[layer - 1][0],
                             (hidden_backward[layer][0], hidden_backward[layer][1])
                             )
 
                 else:
-                    # If RNN{_TANH/_RELU} / GRU
-                    if layer == 0:
-                        # Forward net
-                        h_forward_l = self.rnn_cell_list[layer](input[:, t, :], hidden_forward[layer])
-                        # Backward net
-                        h_back_l = self.rnn_cell_list[layer](input[:, -(t + 1), :], hidden_backward[layer])
-                    else:
-                        # Forward net
-                        h_forward_l = self.rnn_cell_list[layer](hidden_forward[layer - 1], hidden_forward[layer])
-                        # Backward net
-                        h_back_l = self.rnn_cell_list[layer](hidden_backward[layer - 1], hidden_backward[layer])
+                    # Forward net
+                    h_forward_l = self.rnn_cell_list[layer](hidden_forward[layer])
+                    # Backward net
+                    h_back_l = self.rnn_cell_list[layer](hidden_backward[layer])
 
 
                 hidden_forward[layer] = h_forward_l
@@ -496,13 +479,47 @@ class BidirRecurrentModel(nn.Module):
                 outs.append(h_forward_l)
                 outs_rev.append(h_back_l)
 
+        output = []
         # Take only last time step. Modify for seq to seq
+        for t in range(input.shape[0]):
+            if merge_mode == 'concat':
+                out = outs[-(t + 1)].squeeze()
+                out_rev = outs_rev[t].squeeze()
+                output.append(torch.cat((out, out_rev), 1))
+            elif merge_mode == 'sum':
+                output.append(outs[-(t + 1)] + outs_rev[t])
+            elif merge_mode == 'ave':
+                output.append((outs[-(t + 1)] + outs_rev[t]) / 2)
+            elif merge_mode == 'mul':
+                output.append(outs[-(t + 1)] * outs_rev[t])
+            elif merge_mode is None:
+                output.append([outs[-(t + 1)], outs_rev[t]])
+
+        if torch.cuda.is_available():
+            output = torch.tensor([item.detach().numpy() for item in output]).cuda()
+        else:
+            output = torch.tensor([item.detach().numpy() for item in output])
+
+        '''
         out = outs[-1].squeeze()
         out_rev = outs_rev[0].squeeze()
         out = torch.cat((out, out_rev), 1)
+        '''
 
-        out = self.fc(out)
-        return out
+        for layer in range(self.num_layers):
+            if self.mode == 'LSTM':
+                #hidden_forward.append((h0[layer, :, :], h0[layer, :, :]))
+                #hidden_backward.append((h0[self.num_layers + layer, :, :], h0[self.num_layers + layer, :, :]))
+                #template
+                h0[layer] = hidden_forward[layer].clone()
+                h0[self.num_layers + layer] = hidden_backward[layer].clone()
+            else:
+                h0[layer] = torch.tensor([item.detach().numpy() for item in hidden_forward[layer]])
+                h0[self.num_layers + layer] = torch.tensor([item.detach().numpy() for item in hidden_backward[layer]])
+                
+        
+        #out = self.fc(out)
+        return output, h0
         
 ######################################################################
 # Define Encoder
@@ -547,26 +564,26 @@ class EncoderRNN(nn.Module):
 
         # Initialize GRU; the input_size and hidden_size params are both set to 'hidden_size'
         #   because our input size is a word embedding with number of features == hidden_size
-        #self.gru = BidirRecurrentModel()
-        self.gru = nn.GRU(hidden_size, hidden_size, n_layers,
-                          dropout=(0 if n_layers == 1 else dropout), bidirectional=True)
+        self.gru = BidirRecurrentModel("GRU", hidden_size, hidden_size, n_layers)
+        #self.gru = nn.GRU(hidden_size, hidden_size, n_layers, dropout=(0 if n_layers == 1 else dropout), bidirectional=True)
 
     def forward(self, input_seq, input_lengths, hidden=None):
         # type: (Tensor, Tensor, Optional[Tensor]) -> Tuple[Tensor, Tensor]
         # Convert word indexes to embeddings
-        embedded = self.embedding(input_seq)
+        #embedded = self.embedding(input_seq)
+        outputs, hidden = self.gru(input_seq, hidden)
+        
+        '''
         # Pack padded batch of sequences for RNN module
         packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, input_lengths)
-        print("embedded.size", embedded.size)
-        
         # Forward pass through GRU
         outputs, hidden = self.gru(packed, hidden)
-        print("hidden.shape", hidden.shape)
         # Unpack padding
         outputs, _ = torch.nn.utils.rnn.pad_packed_sequence(outputs)
         # Sum bidirectional GRU outputs
         outputs = outputs[:, :, :self.hidden_size] + outputs[:, : ,self.hidden_size:]
-        print("outputs.shape", outputs.shape)
+        '''
+        
         # Return output and final hidden state
         return outputs, hidden
 
